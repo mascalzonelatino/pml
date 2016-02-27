@@ -1,0 +1,116 @@
+# Practical Machine Learning course project
+
+## Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect 
+a large amount of data about personal activity relatively inexpensively. 
+These type of devices are part of the quantified self movement – a group of enthusiasts who take 
+measurements about themselves regularly to improve their health, to find patterns in their behavior, 
+or because they are tech geeks. 
+One thing that people regularly do is quantify how much of a particular activity they do, 
+but they rarely quantify how well they do it. In this project, your goal will be to use data 
+from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. 
+They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+
+## Data
+The training data for this project are available here: 
+  https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+  https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: 
+  http://groupware.les.inf.puc-rio.br/har. 
+
+## Goal
+The goal of the project is to predict the manner in which they did the exercise. 
+This is the “classe” variable in the training set. 
+
+## 1. Loading the data
+```{r}
+all_data <- read.csv("pml-training.csv")
+```
+
+## 2. Data partitioning and cleaning 
+```{r}
+library(caret)
+set.seed(1234)
+inTrain <- createDataPartition(y=all_data$classe,p=0.75,list=FALSE)
+training <- all_data[inTrain,]
+testing <- all_data[-inTrain,]
+dim(training)
+```
+
+From manual exploration it emerges that there is a significant number of missing
+values for some of the variables. We can remove the ones for which the number of 
+missing values is 95%: 
+
+```{r}
+training[training==""] <- NA
+training <- training[,colSums(is.na(training)) < (nrow(training) * 0.95)]
+```
+
+Now let's take a closer look at the type of variables in the training set 
+in the hope that we will be able to remove some of them from the analysis: 
+
+```{r}
+head(training,5)
+```
+
+The variables X, user_name, window type and timestamps are used purely to 
+identify an experiment and can be safely removed as they do not influence the prediction model we are trying to build. 
+
+```{r}
+nonPredictors <- grep("name|timestamp|window|X", colnames(training), value=F) 
+training <- training[,-nonPredictors]
+ncol(training) # columns in our training set 
+```
+
+## 3. Principal component analysis 
+
+We now have a total of 53 variables in our training set; the 53th variable is 
+the outcome variable "classe". 
+We will use Principal component analysis (PCA) to identify whether some variables are highly correlated. 
+
+```{r}
+preProc <- preProcess(training[,1:52], method="pca",thresh=0.95) # retain 95% of the variance; printing preProc$rotation would show that 25 components are identified. 
+trainingPCA <- predict(preProc,training[,1:52])
+```
+
+## 4. Prediction model and validation
+
+We can now train a prediction model against the training set and then validate the model against the testing set. Given the non-linear nature of the training set and 
+the considerable number of predictors, we will choose the Random Forest algorithm. 
+
+```{r}
+library(randomForest)
+```
+```{r}
+fitRF <- randomForest(training$classe ~ ., data=trainingPCA,do.trace=F)
+print(fitRF)
+```
+
+We can now check our model against the testing set. The testing set will be "cleaned"
+using the same steps performed for the training set above: 
+
+```{r}
+testing <- testing[,-nonPredictors]
+testing[testing==""] <- NA
+testing <- testing[,colSums(is.na(testing)) < (nrow(testing) * 0.95)]
+testingPCA <- predict(preProc,testing[,1:52])
+confusionMatrix(testing$classe,predict(fitRF,testingPCA))
+```
+
+The model is 98% accurate with average specificity and sensitivity of 99%. 
+
+Finally, we can use our model to predict the result of the 20 experiments in our validation data set.   
+
+```{r}
+testdata <- read.csv("pml-testing.csv")
+testdata <- testdata[,-nonPredictors]
+testdata[testdata==""] <- NA
+testdata <- testdata[,colSums(is.na(testdata)) < (nrow(testdata) * 0.95)]
+testdataPCA <- predict(preProc,testdata[,1:52])
+testdata$classe <- predict(fitRF,testdataPCA)
+testdata$classe
+```
